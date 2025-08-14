@@ -1,0 +1,5 @@
+apiVersion: v2
+name: multi-tier-app
+description: A generic multi-tier app (frontend + backend)
+version: 0.1.0
+appVersion: "1.0"

@@ -1,0 +1,82 @@
+pipeline {
+    agent any
+
+    // Environment Variables
+  
+environment {
+        AWS_REGION     = 'us-east-1' 
+        ECR_REG        = "${ECR_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" // AWS ECR Registry
+        CLUSTER        = "${CLUSTER_NAME}" // EKS cluster name
+        KUBE_NAMESPACE = "Polaris" // Kubernetes namespace
+    }
+
+    stages {
+
+       
+        // 1. Checkout Code
+       
+        stage('Checkout') {
+            steps {
+                echo "📥 Checking out latest source code..."
+                checkout scm
+            }
+        }
+
+        // 2. Build & Push Docker Images
+       
+        stage('Build & Push') {
+            steps {
+                echo "🐳 Building and pushing Docker images to AWS ECR..."
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
+                    sh '''
+                        # Login to ECR
+                        aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REG
+                        
+                        # Build and push Frontend image
+                        docker build -t $ECR_REG/frontend-web:$GIT_COMMIT ./frontend
+                        docker push $ECR_REG/frontend-web:$GIT_COMMIT
+                        
+                        # Build and push Backend image
+                        docker build -t $ECR_REG/backend-api:$GIT_COMMIT ./backend
+                        docker push $ECR_REG/backend-api:$GIT_COMMIT
+                    '''
+                }
+            }
+        }
+
+       
+        // 3. Deploy Application via Helm
+      
+        stage('Deploy Helm') {
+            steps {
+                echo "🚀 Deploying application to EKS using Helm..."
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
+                    sh '''
+                        # Configure kubectl to talk to EKS cluster
+                        aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER
+                        
+                        # Deploy or upgrade app using Helm
+                        helm upgrade --install multi-tier-app $HELM_CHART_DIR \
+                          --namespace $KUBE_NAMESPACE \
+                          --set frontend.image.repository=$ECR_REG/frontend-web \
+                          --set frontend.image.tag=$GIT_COMMIT \
+                          --set backend.image.repository=$ECR_REG/backend-api \
+                          --set backend.image.tag=$GIT_COMMIT
+                        
+                    '''
+                }
+            }
+        }
+    }
+    
+    // Post Pipeline Actions
+    // =========================
+    post {
+        success {
+            echo " Deployment completed successfully!"
+        }
+        failure {
+            echo " Deployment failed." 
+        }
+    }
+}

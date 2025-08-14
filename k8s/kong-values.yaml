@@ -1,0 +1,8 @@
+proxy:
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+admin:
+  type: ClusterIP
+ingressController:
+  installCRDs: true
